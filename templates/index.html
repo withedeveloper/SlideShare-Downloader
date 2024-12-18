@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download SlideShare Content</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+        form {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        label {
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], input[type="submit"], button {
+            padding: 8px;
+            margin: 8px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        input[type="text"] {
+            width: calc(100% - 80px);
+        }
+        input[type="submit"] {
+            width: 100px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            transition: background-color 0.3s;
+        }
+        input[type="submit"]:hover {
+            background-color: #45a049;
+        }
+        button {
+            background-color: #45a049;
+        }
+        .thumbnail {
+            display: inline-block;
+            margin: 5px;
+            cursor: pointer;
+        }
+        .thumbnail img {
+            width: 100px;
+            height: 75px;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+            transition: border-color 0.3s;
+        }
+        .thumbnail input[type="checkbox"] {
+            display: none;
+        }
+        .thumbnail input[type="checkbox"]:checked + img {
+            border-color: #4CAF50;
+        }
+        .progress-bar-container {
+            width: 100%;
+            background-color: #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 20px;
+            display: none; /* initially hidden */
+        }
+        .progress-bar {
+            width: 0;
+            height: 24px;
+            background-color: #4CAF50;
+            text-align: center;
+            color: white;
+            line-height: 24px;
+        }
+        .progress-bar span {
+            visibility: hidden; /* Hide the percentage text */
+        }
+    </style>
+    <script>
+        let slideOrder = 1;
+        let selectedSlides = [];
+
+        function fetchSlides() {
+            const url = document.getElementById('url').value;
+            if (!url) return;
+
+            fetch('/fetch_slides', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ url: url }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                const slidesContainer = document.getElementById('slides-container');
+                slidesContainer.innerHTML = '';
+                const slides = data.slides;
+                const session_id = data.session_id;
+
+                slides.forEach((slide, index) => {
+                    const thumbnail = document.createElement('div');
+                    thumbnail.className = 'thumbnail';
+                    thumbnail.innerHTML = `
+                        <input type="checkbox" id="slide-${index + 1}" value="${index + 1}">
+                        <img src="${slide}" alt="Slide ${index + 1}" onclick="selectSlide(${index + 1})">
+                        <span id="order-${index + 1}" style="display:none;">${slideOrder}</span>
+                    `;
+                    slidesContainer.appendChild(thumbnail);
+                });
+
+                document.getElementById('select-buttons').style.display = 'block';
+                document.getElementById('format-buttons').style.display = 'block';
+                document.getElementById('progress-bar-container').style.display = 'none';
+                document.getElementById('session-id').value = session_id;
+
+                // Start updating progress bar
+                updateProgress(session_id);
+            })
+            .catch(error => console.error('Error fetching slides:', error));
+        }
+
+        function selectSlide(slideNumber) {
+            const checkbox = document.getElementById(`slide-${slideNumber}`);
+            checkbox.checked = !checkbox.checked;
+
+            const orderSpan = document.getElementById(`order-${slideNumber}`);
+            if (checkbox.checked) {
+                orderSpan.style.display = 'block';
+                orderSpan.innerText = slideOrder;
+                selectedSlides.push(slideNumber);
+                slideOrder++;
+            } else {
+                orderSpan.style.display = 'none';
+                const index = selectedSlides.indexOf(slideNumber);
+                if (index > -1) {
+                    selectedSlides.splice(index, 1);
+                }
+                updateOrder();
+            }
+        }
+
+        function updateOrder() {
+            slideOrder = 1;
+            selectedSlides.forEach(slideNumber => {
+                const orderSpan = document.getElementById(`order-${slideNumber}`);
+                orderSpan.innerText = slideOrder;
+                slideOrder++;
+            });
+        }
+
+        function selectAll() {
+            selectedSlides = [];
+            const thumbnails = document.querySelectorAll('.thumbnail');
+            thumbnails.forEach((thumbnail, index) => {
+                const checkbox = thumbnail.querySelector('input[type="checkbox"]');
+                checkbox.checked = true;
+                const orderSpan = thumbnail.querySelector('span');
+                orderSpan.style.display = 'block';
+                orderSpan.innerText = index + 1;
+                selectedSlides.push(index + 1);
+            });
+            slideOrder = thumbnails.length + 1;
+        }
+
+        function deselectAll() {
+            selectedSlides = [];
+            const thumbnails = document.querySelectorAll('.thumbnail');
+            thumbnails.forEach((thumbnail) => {
+                const checkbox = thumbnail.querySelector('input[type="checkbox"]');
+                checkbox.checked = false;
+                const orderSpan = thumbnail.querySelector('span');
+                orderSpan.style.display = 'none';
+            });
+            slideOrder = 1;
+        }
+
+        function downloadSlides(format) {
+            const url = document.getElementById('url').value;
+            const session_id = document.getElementById('session-id').value;
+            if (!url || selectedSlides.length === 0) return;
+
+            const formData = new FormData();
+            formData.append('url', url);
+            formData.append('format', format);
+            formData.append('session_id', session_id);
+            selectedSlides.forEach(slide => formData.append('slides', slide));
+
+            const progressBarContainer = document.getElementById('progress-bar-container');
+            const progressBar = document.getElementById('progress-bar');
+            progressBarContainer.style.display = 'block';
+            progressBar.style.width = '';
+
+            fetch('/download_images', {
+                method: 'POST',
+                body: formData,
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `slides.${format}`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                progressBarContainer.style.display = 'none';
+
+                // Reset the form and page after download
+                resetForm();
+
+                // Clean up server directory
+                fetch(`/cleanup?session_id=${session_id}`);
+            })
+            .catch(error => console.error('Error downloading slides:', error));
+        }
+
+        function updateProgress(session_id) {
+            fetch(`/progress/${session_id}`)
+            .then(response => response.json())
+            .then(data => {
+                const progressBar = document.getElementById('progress-bar');
+                progressBar.style.width = `${data.progress * 100}%`;
+                if (data.progress < 1) {
+                    setTimeout(() => updateProgress(session_id), 1000);
+                }
+            })
+            .catch(error => console.error('Error updating progress:', error));
+        }
+
+        function resetForm() {
+            document.getElementById('url').value = '';
+            document.getElementById('slides-container').innerHTML = '';
+            document.getElementById('select-buttons').style.display = 'none';
+            document.getElementById('format-buttons').style.display = 'none';
+            document.getElementById('progress-bar-container').style.display = 'none';
+            slideOrder = 1;
+            selectedSlides = [];
+        }
+    </script>
+</head>
+<body>
+    <h2>Download SlideShare Content</h2>
+    <form onsubmit="event.preventDefault(); fetchSlides();">
+        <label for="url">SlideShare URL:</label>
+        <input type="text" id="url" name="url" required>
+        <input type="submit" value="Fetch Slides">
+    </form>
+
+    <div id="slides-container" style="text-align:center; margin-top:20px;"></div>
+
+    <div id="select-buttons" style="display:none; text-align:center; margin-top:20px;">
+        <button onclick="selectAll()">Select All</button>
+        <button onclick="deselectAll()">Deselect All</button>
+    </div>
+
+    <div id="format-buttons" style="display:none; text-align:center; margin-top:20px;">
+        <button onclick="downloadSlides('zip')">Download as ZIP</button>
+        <button onclick="downloadSlides('pdf')">Download as PDF</button>
+        <button onclick="downloadSlides('ppt')">Download as PPT</button>
+    </div>
+
+    <div id="progress-bar-container" class="progress-bar-container">
+        <div id="progress-bar" class="progress-bar"><span></span></div>
+    </div>
+
+    <input type="hidden" id="session-id" name="session-id">
+</body>
+</html>
